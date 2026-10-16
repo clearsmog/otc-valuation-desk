@@ -12,7 +12,7 @@ def test_bootstrap_reprices_every_quote(mkt):
 
 
 def test_gbp_round_trip_matches_bank_of_england_curve(mkt):
-    boe = D.boe_ois_curve("2026-10").loc[ASOF]
+    boe = D.boe_curve_row(ASOF)
     ref = C.from_zero_rates(ASOF, "GBP", boe.index.values, boe.values, "BoE")
     gbp = mkt.curves["GBP"]
     # at quote maturities the curves agree; between sparse long pillars the

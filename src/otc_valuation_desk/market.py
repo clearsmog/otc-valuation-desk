@@ -152,14 +152,14 @@ def build_market(
     fixings_end: date = date(2026, 10, 16),
 ) -> Market:
     """Load the snapshot for ``asof`` and build the curves."""
-    boe = D.boe_ois_curve(asof.strftime("%Y-%m")).loc[asof]
+    boe = D.boe_curve_row(asof)
     gbp_ref = C.from_zero_rates(asof, "GBP", boe.index.values, boe.values, "BoE OIS")
     gbp = C.bootstrap(asof, "GBP", C.par_quotes(gbp_ref), "GBP SONIA OIS")
     ust = D.treasury_par(asof.year).loc[asof].to_dict()
     usd = C.bootstrap(
         asof, "USD", C.treasury_proxy_quotes(ust), "USD SOFR OIS (UST par proxy)"
     )
-    fx = D.ecb_fx(date(2026, 9, 1), fixings_end)
+    fx = D.ecb_fx(date(2026, 6, 1), fixings_end)
     return Market(
         asof=asof,
         curves={"GBP": gbp, "USD": usd},
@@ -177,7 +177,23 @@ def boe_interpolated(mkt: Market) -> Market:
     """The same market with the GBP curve read straight off the Bank of
     England zero curve (its smooth interpolation) instead of the log-linear
     bootstrap. Used to replay a dealer whose curve interpolates differently."""
-    boe = D.boe_ois_curve(mkt.asof.strftime("%Y-%m")).loc[mkt.asof]
+    boe = D.boe_curve_row(mkt.asof)
     gbp = C.from_zero_rates(mkt.asof, "GBP", boe.index.values, boe.values, "BoE OIS (dense)")
     gbp.quotes = mkt.curves["GBP"].quotes
     return replace(mkt, curves={**mkt.curves, "GBP": gbp})
+
+
+def roll_to(mkt: Market, new_asof: date) -> Market:
+    """Move the valuation date forward with the old curves unchanged as
+    functions of calendar date (forwards realised): df'(d) = df(d) / df(new).
+    Spot and vols are held. Used for the carry step of a value-change
+    explain."""
+    curves = {}
+    for ccy, c in mkt.curves.items():
+        shift = C.t_of(c.asof, new_asof)
+        ld0 = float(np.log(c.df(shift)))
+        keep = c.times > shift
+        times = np.concatenate([[0.0], c.times[keep] - shift])
+        logs = np.concatenate([[0.0], c.log_df[keep] - ld0])
+        curves[ccy] = C.DiscountCurve(new_asof, ccy, times, logs, f"{c.label} (rolled from {c.asof})", c.quotes)
+    return replace(mkt, asof=new_asof, curves=curves)

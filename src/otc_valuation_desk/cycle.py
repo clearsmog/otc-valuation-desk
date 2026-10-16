@@ -43,7 +43,7 @@ def run_qc(mkt: Market) -> pd.DataFrame:
         ex += qc.check_missing(s, name, lookback, asof - timedelta(days=1), cal)
         ex += qc.check_stale(s, name, stale_days=5)
         ex += qc.check_jumps(s, name, threshold=10.0, unit="bp")
-    fx = D.ecb_fx(date(2026, 9, 1), date(2026, 10, 16))["GBPUSD"]
+    fx = D.ecb_fx(date(2026, 6, 1), date(2026, 10, 16))["GBPUSD"]
     ex += qc.check_jumps(fx[fx.index <= asof], "ECB", threshold=1.5, unit="pct")
     ust = D.treasury_par(asof.year)
     ust = ust[(ust.index >= lookback) & (ust.index <= asof)]
@@ -51,7 +51,7 @@ def run_qc(mkt: Market) -> pd.DataFrame:
         ex += qc.check_jumps(
             ust[col].rename(f"UST {col:g}y"), "Treasury", threshold=15.0, unit="bp"
         )
-    boe = D.boe_ois_curve(asof.strftime("%Y-%m")).loc[asof]
+    boe = D.boe_curve_row(asof)
     ex += qc.check_zero_curve(boe.index.values, boe.values, "BoE OIS", asof)
     return qc.to_frame(ex)
 

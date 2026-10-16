@@ -165,3 +165,41 @@ def ecb_fx(start: date, end: date, refresh: bool = False) -> pd.DataFrame:
     out = pd.DataFrame({"EURUSD": wide["USD"], "EURGBP": wide["GBP"]})
     out["GBPUSD"] = out["EURUSD"] / out["EURGBP"]
     return out.sort_index()
+
+
+BOE_OIS_ARCHIVE = "https://www.bankofengland.co.uk/-/media/boe/files/statistics/yield-curves/oisddata.zip"
+
+
+def boe_ois_archive(refresh: bool = False) -> pd.DataFrame:
+    """UK OIS spot curve history from 2025 (the Bank's archive, updated about
+    monthly). Only the 2025-onwards rows are cached, as CSV, to keep the
+    repository small."""
+    path = RAW / "boe" / "ois_archive_2025_on.csv"
+    if path.exists() and not refresh:
+        df = pd.read_csv(path, index_col=0)
+        df.index = [date.fromisoformat(d) for d in df.index]
+        df.columns = [float(c) for c in df.columns]
+        return df
+    r = requests.get(BOE_OIS_ARCHIVE, headers=UA, timeout=120)
+    r.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+        name = next(n for n in z.namelist() if "2025 to present" in n)
+        wb = openpyxl.load_workbook(io.BytesIO(z.read(name)), data_only=True)
+    short = _parse_boe_sheet(wb["3. spot, short end"])
+    long = _parse_boe_sheet(wb["4. spot curve"])
+    long = long[[c for c in long.columns if c > short.columns.max() + 1e-9]]
+    out = short.join(long, how="outer")
+    out.columns = [round(c, 6) for c in out.columns]
+    out = out.dropna(axis=1, how="all")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_csv(path)
+    return out
+
+
+def boe_curve_row(asof: date) -> pd.Series:
+    """The BoE OIS zero curve for one date: the archive if it has the date,
+    otherwise the current-month file."""
+    arch = boe_ois_archive()
+    if asof in arch.index:
+        return arch.loc[asof].dropna()
+    return boe_ois_curve(asof.strftime("%Y-%m")).loc[asof].dropna()
