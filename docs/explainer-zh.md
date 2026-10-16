@@ -12,7 +12,7 @@
 行情质控 -> 构建曲线 -> 自己的模型估值 -> 和独立参照比 -> 和交易对手 mark 比 -> 差异归因 -> 报告
 ```
 
-客户是虚构的基金（20 笔交易：10 笔 SONIA/SOFR OIS，5 笔 GBPUSD 远期，5 笔 GBPUSD 期权）。
+客户是虚构的基金（26 笔交易：10 笔 SONIA/SOFR OIS，5 笔 GBPUSD 远期，5 笔 GBPUSD 期权，4 笔 swaption，2 笔 SONIA/SOFR 交叉货币互换）。
 
 | 输入 | 来源 | 真实/模拟 |
 |---|---|---|
@@ -20,7 +20,7 @@
 | SONIA、SOFR fixing | 英格兰银行、纽约联储 | 真实 |
 | USD 曲线 | 美国国债 par 收益率，**当作 SOFR OIS 的代理** | 真实数据，代理用法 |
 | GBPUSD 即期 | ECB 参考汇率（EUR/USD ÷ EUR/GBP） | 真实 |
-| FX 波动率、dealer mark、交易 | — | 模拟 |
+| FX 波动率微笑、swaption 波动率、dealer mark、交易 | — | 模拟 |
 
 **面试可能怎么问**："你的 USD 曲线为什么用国债？"
 答：SOFR 互换报价没有免费来源。国债和 SOFR OIS 之间有 swap spread（近年为负），我忽略了它，所以 USD 估值只是示意，项目里每处都标了 proxy。
@@ -142,7 +142,7 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 - T 是到**到期日**的时间。
 - 波动率是模拟的 ATM 期限结构，在总方差上线性插值。
 
-**和 QuantLib 的差异**：QuantLib 的 GK 引擎从今天算到到期日，不考虑交割滞后。所以两边差约 0.007 个 vol 点，最大约 515 USD（1200 万 GBP 名义本金）。这不是 bug，是惯例不同，报告里写明了原因。
+**和 QuantLib 的差异**：QuantLib 的 GK 引擎从今天算到到期日，不考虑交割滞后。所以两边最多差约 0.016 个 vol 点（1 个月期权最明显；金额最大的是 NBM-FXO-005，约 511 USD）。这不是 bug，是惯例不同，报告里写明了原因。
 
 **面试可能怎么问**："期货期权为什么用 Black-76 而不是 Black-Scholes？"
 答：标的是远期或期货价格，它没有持有成本漂移，所以用远期形式（Black-76）。FX 期权用远期形式写，也就把两国利率吸收到 F 里了。
@@ -171,8 +171,8 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 |---|---|---|
 | 曲线 | 约 1e-14 | — |
 | OIS | 0.79 USD | QuantLib 的 SOFR 日历把 Good Friday 当假日，我用的美国联邦假日不是 |
-| FX 远期 | 不到 1 美分 | — |
-| FX 期权 | 0.007 vol 点 | 交割滞后惯例（见第 6 节） |
+| Swaption、XCCY、FX 远期 | 不到 1 美分 | — |
+| FX 期权 | 0.016 vol 点 | 交割滞后惯例（见第 6 节），1 个月期权最明显 |
 
 这个对照帮我找到了两个问题：
 
@@ -215,7 +215,7 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 
 **未解释**：所有假设都不符合，就标 UNEXPLAINED，升级处理，向 dealer 要完整的估值输入。
 
-**测试**：20 个埋好的原因全部被正确识别。归因代码看不到答案表，答案表只用于测试。
+**测试**：26 个埋好的原因全部被正确识别。归因代码看不到答案表，答案表只用于测试。
 
 **面试可能怎么问**："银行的估值单和你的对不上，你怎么处理？"
 答：
@@ -229,11 +229,111 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 
 ---
 
+## 9a. Swaption（Bachelier / 正态模型）
+
+利率可以为负、而且利率的波动更接近"每年多少 bp"而不是百分比，所以市场用正态波动率报价（单位 bp）。
+
+```
+远期互换利率 S = (df(start) − df(end)) / A,   A = Σ τ_i × df(pay_i)（年金）
+d = (S − K) / (σ√T)
+payer = N × A × [(S − K)·Φ(d) + σ√T·φ(d)]
+```
+
+- receiver 把 (S − K) 换成 (K − S)，Φ(d) 换成 Φ(−d)。
+- **payer − receiver = N × A × (S − K)**，就是一笔远期起息互换的价值（测试里验证了）。
+- 波动率来自期限 × 标的期限的网格（模拟数据），双线性插值。
+- 和 QuantLib 的 `BachelierSwaptionEngine` 结果一致到 1 美分以内。
+
+**面试可能怎么问**："为什么 swaption 用正态模型不用 Black？"
+答：低利率或负利率时，lognormal 模型无法处理，而且利率的实际变动更接近绝对 bp。另外，正态 vol 乘以年金和 √T，可以直接换算成美元风险，便于沟通。
+
+---
+
+## 9b. FX 波动率微笑（vanna-volga）
+
+FX 市场每个期限报三个数：ATM（delta 中性跨式）、25-delta risk reversal（RR）、25-delta butterfly（BF）。
+
+1. 先换算成三个支点的波动率：σ25C = ATM + BF + RR/2，σ25P = ATM + BF − RR/2。这是"smile strangle"简化，实际 broker strangle 更复杂，README 里写明了。
+2. 再由 delta 反解出三个支点的执行价（用 forward delta）：
+   - ATM：K = F·exp(½σ²T)
+   - 25D call：K = F·exp(−N⁻¹(0.25)·σ√T + ½σ²T)
+   - 25D put：K = F·exp(−N⁻¹(0.75)·σ√T + ½σ²T)
+3. 任意执行价的波动率用 vanna-volga 插值（Castagna-Mercurio 二阶近似）。思路是：用三个支点期权组合复制 vega、vanna、volga，算出所需的成本，再把它换算成波动率。
+
+测试验证了：三个支点的波动率能精确复现；RR 为负时，GBP put 一侧更贵；两翼高于中间。
+
+**面试可能怎么问**："risk reversal 是负的说明什么？"
+答：市场对 GBP 下跌的保护（put）需求更大，愿意多付波动率。
+
+---
+
+## 9c. 交叉货币互换（SONIA vs SOFR）
+
+一条腿收 GBP SONIA（加点差），另一条腿付 USD SOFR。名义本金固定，期初和期末各交换一次本金，每季度付息。
+
+关键结论：**一条浮动腿加上按面值交换的本金，现值等于 0（伸缩相消）**。所以在没有基差的模型里，交叉货币互换的价值只来自三处：
+
+- 点差的年金
+- 本期已经实现的复利
+- 本金在成交时按当时汇率定下、之后汇率变动带来的价值（这部分最大）
+
+项目里 NBM-XCY-001 的价值主要来自 GBPUSD 的变化，PV01 几乎为 0，FX delta 很大。
+
+**局限**：真实市场有 GBP/USD 交叉货币基差。没有免费数据，所以模型里基差为 0，README 里写明了。
+
+---
+
+## 9d. 月末估值变动归因（month-end explain）
+
+两个日期之间的价值变化，按顺序一块一块替换市场数据，每一步都完整重估：
+
+1. **carry**：日期挪到月末，曲线按日期保持不变（远期实现），即期和波动率不变。真实的 SONIA/SOFR fixing 在这一步进入。
+2. GBP 利率换成月末的
+3. USD 利率换成月末的
+4. 即期汇率换成月末的（GBP 计价交易换算成 USD 的影响也在这一步）
+5. 波动率（模拟、不变，所以是 0）
+6. 当月新交易
+
+2026-08-28 到 2026-09-30（真实行情：GBP 5 年 +36bp，USD 5 年 +60bp，GBPUSD −2.2%）：
+
+| 步骤 | 金额 |
+|---|---|
+| carry | −80k |
+| GBP 利率 | +229k |
+| USD 利率 | −66k |
+| 即期汇率 | −158k |
+| 新交易 | −128k |
+| 残差 | 0 |
+
+**顺序依赖**：先换 FX 还是先换利率，会让 3–7k 在两步之间移动，这就是交叉效应。报告里同时给出了反向顺序的结果。
+
+现金流：期间没有付息、交割或到期（代码检查过）。如果有，会提示"未建模"，而不是悄悄漏掉。
+
+**面试可能怎么问**："客户问为什么这个月估值降了 20 万，你怎么解释？"
+答：按上面的分步结果讲：利率上升让付固定的互换赚钱，GBP 贬值让多头 GBP 的远期和 XCCY 亏钱，期权有时间价值损耗，当月还新做了两笔交易。
+
+---
+
+## 9e. Excel / VBA
+
+`vba/ChallengeLog.bas` 在 Challenges 表上生成 Exceptions 表：
+
+- 只列超出容差的交易
+- 按"差异是容差的几倍"排序
+- 加上负责人、日期和处理状态下拉框（Open / Sent to dealer / Resolved / Escalated）
+- 右侧用 COUNTIFS 生成"交易对手 × 状态"计数，供和 dealer 做服务回顾时用
+
+为了兼容 Mac，没有用 Scripting.Dictionary，去重用 `Application.Match`。
+
+**这段 VBA 你要自己在 Excel 里跑一遍，逐行读懂。** JD 要求 VBA，面试官可能会让你讲它。
+
+---
+
 ## 10. 局限（被问到要主动说）
 
 - 单曲线折现，没有 CSA 币种选择，也没有交叉货币基差。
 - USD 曲线是国债代理。
-- FX 波动率没有微笑（smile 在完整版里做）。
+- 没有交叉货币基差；smile 的支点用了简化公式。
 - fixing 用 0 天 lookback。
 - dealer mark 是我自己按规则生成的，真实世界的原因会更乱，而且常常几种原因叠加。
 
@@ -243,4 +343,4 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 
 - 必须写 "personal build"、"built with AI coding agents"，模拟的部分要写明。
 - 真实数据来源要写准确。
-- 数字以 FROZEN-FACTS 为准，比如"20/20 planted causes"、"agrees with QuantLib to within 0.01 vol point / machine precision on curves"。
+- 数字以 FROZEN-FACTS 为准，比如"26/26 planted causes"、"agrees with QuantLib to machine precision on curves, swaps, swaptions and XCCY, and within 0.02 vol point on FX options"。

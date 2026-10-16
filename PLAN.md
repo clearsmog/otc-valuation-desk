@@ -7,7 +7,7 @@ reference (QuantLib) and with the client's counterparty (dealer) marks, and
 work every difference above tolerance down to a cause.
 
 Scope agreed 2026-10-16: **rates and FX only**, full version in about a week;
-the CV application waits for the core version.
+the CV application waits for the core version. Status 2026-10-16: core and full version built (phases 1-12).
 
 ## Data
 
