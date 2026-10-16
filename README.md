@@ -97,8 +97,10 @@ carried adjusted termination dates, which QuantLib turns into a one-day stub.
 A cause is confirmed only if it closes at least 90% of the gap, and the closest
 fit wins. Direction and notional tests only run when the trade's value is at
 least twice the tolerance; below that they have no power and the report says
-to check the confirmation. On the sample date the attribution recovers all 26
-planted causes (`tests/test_challenge.py`).
+to check the confirmation. On the sample date, of the 26 synthetic marks, 15 carry a planted break
+and 11 are clean: the attribution finds all 15 breaks and clears all 11
+(`tests/test_challenge.py`). The answer key is self-generated, so this tests
+the logic, not real-world accuracy.
 
 ## Month-end explain (28 Aug to 30 Sep 2026, real market moves)
 

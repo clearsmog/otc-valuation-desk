@@ -215,7 +215,7 @@ d1 = [ln(F/K) + ½σ²T] / (σ√T),  d2 = d1 − σ√T
 
 **未解释**：所有假设都不符合，就标 UNEXPLAINED，升级处理，向 dealer 要完整的估值输入。
 
-**测试**：26 个埋好的原因全部被正确识别。归因代码看不到答案表，答案表只用于测试。
+**测试**：26 笔 mark 里，15 笔埋了差异原因，11 笔是干净的。归因找到了全部 15 个差异，也没有把 11 笔干净的误判为问题。面试时要主动说明：答案是我自己生成的，所以这个测试有循环性，验证的是逻辑，不代表真实世界的准确率。归因代码看不到答案表，答案表只用于测试。
 
 **面试可能怎么问**："银行的估值单和你的对不上，你怎么处理？"
 答：
@@ -343,4 +343,4 @@ FX 市场每个期限报三个数：ATM（delta 中性跨式）、25-delta risk 
 
 - 必须写 "personal build"、"built with AI coding agents"，模拟的部分要写明。
 - 真实数据来源要写准确。
-- 数字以 FROZEN-FACTS 为准，比如"26/26 planted causes"、"agrees with QuantLib to machine precision on curves, swaps, swaptions and XCCY, and within 0.02 vol point on FX options"。
+- 数字以 FROZEN-FACTS 为准，比如"finding all 15 planted breaks and clearing the 11 clean marks"、"matches a QuantLib rebuild to under $1 on all swaps and swaptions and 0.02 vol points on FX options"。不要说 machine precision（有一笔 USD 互换差 0.79 美元），也不要说"独立估值"（QuantLib 用的是同一套输入数据，独立的只是实现）。
