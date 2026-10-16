@@ -1,0 +1,27 @@
+[project]
+name = "otc-valuation-desk"
+version = "0.1.0"
+description = "Independent OTC valuation and price-challenge workflow for GBP/USD rates and FX (personal build)"
+readme = "README.md"
+authors = [
+    { name = "clearsmog", email = "zqkntu@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "holidays>=0.106",
+    "numpy>=2.5.4",
+    "openpyxl>=3.1.5",
+    "pandas>=3.0.6",
+    "quantlib>=1.44",
+    "requests>=2.34.2",
+    "scipy>=1.18.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.1,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
