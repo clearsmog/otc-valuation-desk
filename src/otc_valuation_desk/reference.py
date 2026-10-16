@@ -19,7 +19,7 @@ import QuantLib as ql
 
 from .curves import CONVENTIONS
 from .market import Market
-from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade, XCCYSwap
 
 
 def qd(d: date) -> ql.Date:
@@ -156,6 +156,28 @@ def ql_swaption(trade: Swaption, qm: QLMarket) -> float:
     return sign * opt.NPV()
 
 
+def _ql_leg_with_exchanges(qm: QLMarket, ccy: str, notional: float, spread: float, trade: XCCYSwap) -> float:
+    idx = qm.indices[ccy]
+    c = CONVENTIONS[ccy]
+    sched = ql.Schedule(
+        qd(trade.start), qd(trade.end), ql.Period(ql.Quarterly), idx.fixingCalendar(),
+        ql.ModifiedFollowing, ql.ModifiedFollowing, ql.DateGeneration.Backward, False,
+    )
+    leg = ql.OvernightLeg([notional], sched, idx, QL_DC[c["day_count"]], ql.ModifiedFollowing, [1.0], [spread])
+    flows = list(leg)
+    if sched[0] > qm.asof:
+        flows.append(ql.SimpleCashFlow(-notional, sched[0]))
+    flows.append(ql.SimpleCashFlow(notional, sched[len(sched) - 1]))
+    return ql.CashFlows.npv(ql.Leg(flows), qm.handles[ccy], False, qm.asof, qm.asof)
+
+
+def ql_xccy(trade: XCCYSwap, qm: QLMarket) -> float:
+    gbp = _ql_leg_with_exchanges(qm, "GBP", trade.notional, trade.spread, trade)
+    usd = _ql_leg_with_exchanges(qm, "USD", trade.notional_usd, 0.0, trade)
+    value = gbp * qm.mkt.spot[trade.pair] - usd
+    return value if trade.receive_gbp else -value
+
+
 def ql_price(trade: Trade, qm: QLMarket) -> float:
     if isinstance(trade, OISSwap):
         return ql_ois(trade, qm)
@@ -165,4 +187,6 @@ def ql_price(trade: Trade, qm: QLMarket) -> float:
         return ql_fx_option(trade, qm)
     if isinstance(trade, Swaption):
         return ql_swaption(trade, qm)
+    if isinstance(trade, XCCYSwap):
+        return ql_xccy(trade, qm)
     raise TypeError(type(trade))

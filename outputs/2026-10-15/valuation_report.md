@@ -4,10 +4,10 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 
 ## Summary
 
-- Portfolio PV (USD, own model): 5,069,630
-- QuantLib reference: 24/24 trades within tolerance
+- Portfolio PV (USD, own model): 5,390,430
+- QuantLib reference: 26/26 trades within tolerance
 - Market-data QC exceptions: 5 (0 FAIL)
-- Price challenges: EXPLAINED 8, LIKELY 6, WITHIN_TOLERANCE 10
+- Price challenges: EXPLAINED 9, LIKELY 6, WITHIN_TOLERANCE 11
 
 ## Market-data QC
 
@@ -64,6 +64,8 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 | NBM-SWO-002 | SWPTN | Bank C | GBP | -44,139 | -44,139 | -0 | -0 | OK |
 | NBM-SWO-003 | SWPTN | Bank E | USD | 1,246,936 | 1,246,936 | -0 | -0 | OK |
 | NBM-SWO-004 | SWPTN | Bank D | USD | -134,736 | -134,736 | 0 | 0 | OK |
+| NBM-XCY-001 | XCCY | Bank B | USD | -110,588 | -110,588 | 0 | 0 | OK |
+| NBM-XCY-002 | XCCY | Bank E | USD | 431,388 | 431,388 | 0 | 0 | OK |
 
 ## Price challenges (dealer mark minus our value)
 
@@ -93,3 +95,5 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 | NBM-SWO-002 | Bank C | GBP | -44,139 | -49,437 | -5,297 | 1,000 | LIKELY | VOL | dealer normal vol about +6.0bp from ours | Request the dealer's vol for this expiry/strike and compare with our surface |
 | NBM-SWO-003 | Bank E | USD | 1,246,936 | 1,126,950 | -119,985 | 15,455 | EXPLAINED | PRIOR_DAY | matches a mark off 2026-10-14 curves and spot | Ask the dealer for the curve/spot snapshot date; re-request today's mark |
 | NBM-SWO-004 | Bank D | USD | -134,736 | -137,716 | -2,980 | 1,986 | LIKELY | BID_SIDE | gap = 1.5bp normal vol against us (bid/offer side) | Ask whether the mark is mid or bid/offer; request a mid mark |
+| NBM-XCY-001 | Bank B | USD | -110,588 | 110,588 | 221,176 | 5,330 | EXPLAINED | DIRECTION | matches the opposite direction | Booking break: confirm direction against the confirmation; escalate to operations |
+| NBM-XCY-002 | Bank E | USD | 431,388 | 431,348 | -39 | 3,985 | WITHIN_TOLERANCE |  |  |  |

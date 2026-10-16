@@ -40,3 +40,12 @@ def test_put_call_parity(mkt):
     put = replace(call, trade_id="P", call=False)
     fwd = FXForward("F", "X", "GBPUSD", 1e7, k, True, dlv)
     assert abs(P.price(call, mkt) - P.price(put, mkt) - P.price(fwd, mkt)) < 1e-6
+
+
+def test_forward_start_xccy_without_spread_is_worth_zero(mkt):
+    from otc_valuation_desk.trades import XCCYSwap
+
+    # each floating leg with par notional exchanges telescopes to zero
+    t = XCCYSwap("X", "B", 1e7, 1.4e7, 0.0, True, date(2027, 1, 19), date(2032, 1, 19))
+    assert abs(P.price(t, mkt)) < 1e-6
+    assert abs(P.price(replace(t, notional_usd=9e6), mkt)) < 1e-6  # whatever the notionals

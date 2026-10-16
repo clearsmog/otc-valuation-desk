@@ -17,7 +17,7 @@ from scipy.stats import norm
 from .curves import CONVENTIONS, t_of
 from .dates import add_business_days, is_business_day, schedule, year_fraction
 from .market import Market
-from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade, XCCYSwap
 
 DENOM = {"ACT/365F": 365.0, "ACT/360": 360.0}
 
@@ -184,6 +184,45 @@ def price_swaption(trade: Swaption, mkt: Market, vol_bp: float | None = None) ->
     return sign * trade.notional * annuity * bachelier(fwd, trade.strike, vol_bp / 1e4, t_exp, trade.payer)
 
 
+XCCY_FREQ = 3  # months, both legs
+
+
+def overnight_leg_with_exchanges(mkt: Market, ccy: str, notional: float, spread: float, start: date, end: date) -> float:
+    """PV of receiving a compounded overnight leg (+ simple spread) with the
+    notional paid at start (if still to come) and received at maturity."""
+    c = CONVENTIONS[ccy]
+    curve = mkt.curves[ccy]
+    asof = mkt.asof
+    periods = schedule(start, end, XCCY_FREQ, c["cal"])
+    pv = 0.0
+    for p in periods:
+        if p.end <= asof:
+            continue
+        df_end = curve.df_at(p.end)
+        pv += notional * spread * year_fraction(p.start, p.end, c["day_count"]) * df_end
+        if p.start >= asof:
+            pv += notional * (curve.df_at(p.start) - df_end)
+        else:
+            a, _ = realised_compounding(mkt.fixings[c["index"]], p.start, asof, c["cal"], c["day_count"])
+            pv += notional * (a - df_end)
+    if start > asof:
+        pv -= notional * curve.df_at(start)
+    end_adj = periods[-1].end
+    if end_adj > asof:
+        pv += notional * curve.df_at(end_adj)
+    return pv
+
+
+def price_xccy(trade: XCCYSwap, mkt: Market) -> float:
+    """PV in USD. Single-curve per currency, so the model carries no
+    cross-currency basis: the value comes from the spread, rates and the move
+    in spot since the notionals were fixed."""
+    gbp = overnight_leg_with_exchanges(mkt, "GBP", trade.notional, trade.spread, trade.start, trade.end)
+    usd = overnight_leg_with_exchanges(mkt, "USD", trade.notional_usd, 0.0, trade.start, trade.end)
+    value = gbp * mkt.spot[trade.pair] - usd
+    return value if trade.receive_gbp else -value
+
+
 def price(trade: Trade, mkt: Market) -> float:
     if isinstance(trade, OISSwap):
         return price_ois(trade, mkt)
@@ -193,6 +232,8 @@ def price(trade: Trade, mkt: Market) -> float:
         return price_fx_option(trade, mkt)
     if isinstance(trade, Swaption):
         return price_swaption(trade, mkt)
+    if isinstance(trade, XCCYSwap):
+        return price_xccy(trade, mkt)
     raise TypeError(type(trade))
 
 
@@ -215,7 +256,7 @@ def sensitivities(trade: Trade, mkt: Market) -> dict[str, float]:
     out = {}
     for ccy in ("GBP", "USD"):
         out[f"pv01_{ccy}"] = price(trade, mkt.bump_curve(ccy, 1.0)) - base
-    if isinstance(trade, FXForward | FXOption):
+    if isinstance(trade, FXForward | FXOption | XCCYSwap):
         out["fx_delta_1pct"] = price(trade, mkt.bump_spot(trade.pair, 0.01)) - base
     if isinstance(trade, FXOption):
         out["vega_1pt"] = price(trade, mkt.bump_vol(trade.pair, 1.0)) - base

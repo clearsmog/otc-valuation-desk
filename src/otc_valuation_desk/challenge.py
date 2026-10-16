@@ -22,7 +22,7 @@ from datetime import date
 from . import pricing as P
 from .marks import DealerMark
 from .market import Market, boe_interpolated
-from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade, XCCYSwap
 
 ACTIONS = {
     "PRIOR_DAY": "Ask the dealer for the curve/spot snapshot date; re-request today's mark",
@@ -126,6 +126,8 @@ def attribute(
         flipped = replace(trade, pay_fixed=not trade.pay_fixed)
     elif isinstance(trade, FXForward):
         flipped = replace(trade, buy_base=not trade.buy_base)
+    elif isinstance(trade, XCCYSwap):
+        flipped = replace(trade, receive_gbp=not trade.receive_gbp)
     else:
         flipped = replace(trade, long=not trade.long)
     # Direction and notional errors scale the value, so on a trade worth
@@ -201,7 +203,7 @@ def attribute(
                 0.0,
             )
         detail += f"gap equals a {bp:+.2f}bp curve shift"
-    if isinstance(trade, FXForward | FXOption):
+    if isinstance(trade, FXForward | FXOption | XCCYSwap):
         pct = gap / units["delta_1pct"]
         if abs(pct) <= 0.5:
             value = P.price(trade, mkt.bump_spot(trade.pair, pct / 100.0))

@@ -69,7 +69,25 @@ class Swaption:
     product: str = "SWPTN"
 
 
-Trade = OISSwap | FXForward | FXOption | Swaption
+@dataclass(frozen=True)
+class XCCYSwap:
+    """Constant-notional cross-currency basis swap: compounded SONIA (+ spread)
+    on the GBP notional against compounded SOFR on the USD notional, quarterly,
+    with initial and final notional exchanges."""
+
+    trade_id: str
+    counterparty: str
+    notional: float  # GBP
+    notional_usd: float
+    spread: float  # decimal, on the GBP leg
+    receive_gbp: bool
+    start: date
+    end: date
+    pair: str = "GBPUSD"
+    product: str = "XCCY"
+
+
+Trade = OISSwap | FXForward | FXOption | Swaption | XCCYSwap
 
 
 def _d(x) -> date:
@@ -124,6 +142,11 @@ def load_portfolio(path: Path) -> list[Trade]:
             out.append(
                 Swaption(r["trade_id"], r["counterparty"], r["ccy"], float(r["notional"]), float(r["rate"]),
                          r["option_type"] == "PAYER", r["direction"] == "BUY", _d(r["expiry"]), _d(r["start"]), _d(r["end"]))
+            )
+        elif p == "XCCY":
+            out.append(
+                XCCYSwap(r["trade_id"], r["counterparty"], float(r["notional"]), float(r["notional_quote"]),
+                         float(r["rate"]), r["direction"] == "RECEIVE_GBP", _d(r["start"]), _d(r["end"]))
             )
         else:
             raise ValueError(f"unknown product {p!r} in {r['trade_id']}")

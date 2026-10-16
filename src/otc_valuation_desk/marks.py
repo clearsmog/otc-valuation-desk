@@ -28,7 +28,7 @@ import numpy as np
 
 from . import pricing as P
 from .market import Market, boe_interpolated, build_market
-from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade, XCCYSwap
 
 # trade_id -> (cause, parameter). Explicit so the answer key is readable.
 PLANTED: dict[str, tuple[str, float]] = {
@@ -56,6 +56,8 @@ PLANTED: dict[str, tuple[str, float]] = {
     "NBM-SWO-002": ("VOL", 6.0),  # bp normal vol
     "NBM-SWO-003": ("PRIOR_DAY", 0.0),
     "NBM-SWO-004": ("BID_SIDE", 1.5),  # bp normal vol
+    "NBM-XCY-001": ("DIRECTION", 0.0),
+    "NBM-XCY-002": ("NONE", 0.0),
 }
 
 
@@ -103,6 +105,8 @@ def marked_value(
             return P.price(replace(trade, pay_fixed=not trade.pay_fixed), mkt)
         if isinstance(trade, FXForward):
             return P.price(replace(trade, buy_base=not trade.buy_base), mkt)
+        if isinstance(trade, XCCYSwap):
+            return P.price(replace(trade, receive_gbp=not trade.receive_gbp), mkt)
         return P.price(replace(trade, long=not trade.long), mkt)
     if cause == "VOL":
         if isinstance(trade, Swaption):

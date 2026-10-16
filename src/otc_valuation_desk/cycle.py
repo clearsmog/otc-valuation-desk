@@ -30,7 +30,7 @@ from .trades import FXOption, OISSwap, Swaption, Trade, load_portfolio
 
 ROOT = Path(__file__).resolve().parents[2]
 PORTFOLIO = ROOT / "data" / "trades" / "client_portfolio.csv"
-REF_TOL = {"OIS": 0.1, "FXFWD": 0.5, "FXOPT": 0.05, "SWPTN": 0.05}  # bp of PV01, bp of spot, vol pts, bp normal vol
+REF_TOL = {"OIS": 0.1, "FXFWD": 0.5, "FXOPT": 0.05, "SWPTN": 0.05, "XCCY": 0.5}  # bp of PV01, bp of spot, vol pts, bp normal vol
 
 
 def run_qc(mkt: Market) -> pd.DataFrame:
