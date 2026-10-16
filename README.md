@@ -110,7 +110,10 @@ moves 3–7k between them: the cross effect.
 ## Excel macro
 
 Import `vba/ChallengeLog.bas` into `valuation_report.xlsx` (Developer →
-Visual Basic → File → Import File), save as `.xlsm`, run `BuildExceptionLog`.
+Visual Basic → File → Import File), save as `.xlsm`, run `BuildExceptionLog`. `BuildExceptionLogQuiet` does the same without message boxes, for scripted
+runs. Verified 2026-10-16 in Excel for Mac 16.114 (run through AppleScript):
+`outputs/2026-10-15/valuation_report.xlsm` holds the result, and its 15
+exceptions, ranking and counterparty counts match a pandas recomputation.
 
 ## Limits
 

@@ -27,6 +27,16 @@ Private Function ColumnOf(ws As Worksheet, header As String) As Long
 End Function
 
 Public Sub BuildExceptionLog()
+    RunLog False
+End Sub
+
+' Same as BuildExceptionLog without message boxes, for scripted runs
+' (AppleScript "run VB macro" or Application.Run).
+Public Sub BuildExceptionLogQuiet()
+    RunLog True
+End Sub
+
+Private Sub RunLog(ByVal quiet As Boolean)
     Dim src As Worksheet, dst As Worksheet
     Dim names As Variant, cols(0 To 8) As Long
     Dim i As Long, r As Long, outRow As Long, lastRow As Long
@@ -37,6 +47,7 @@ Public Sub BuildExceptionLog()
     For i = 0 To 8
         cols(i) = ColumnOf(src, CStr(names(i)))
         If cols(i) = 0 Then
+            If quiet Then Err.Raise vbObjectError + 513, "ChallengeLog", "Column '" & names(i) & "' not found"
             MsgBox "Column '" & names(i) & "' not found on sheet " & SRC_SHEET, vbExclamation
             Exit Sub
         End If
@@ -109,7 +120,7 @@ Public Sub BuildExceptionLog()
     dst.Range("A2").Select
     ActiveWindow.FreezePanes = True
     Application.ScreenUpdating = True
-    MsgBox (lastRow - 1) & " exceptions logged on sheet " & DST_SHEET, vbInformation
+    If Not quiet Then MsgBox CStr(lastRow - 1) & " exceptions logged on sheet " & DST_SHEET, vbInformation
 End Sub
 
 ' Counterparty x status counts to the right of the log, built with COUNTIFS so
