@@ -26,11 +26,11 @@ from . import qc
 from . import reference as R
 from .curves import t_of
 from .market import Market, build_market
-from .trades import FXOption, OISSwap, Trade, load_portfolio
+from .trades import FXOption, OISSwap, Swaption, Trade, load_portfolio
 
 ROOT = Path(__file__).resolve().parents[2]
 PORTFOLIO = ROOT / "data" / "trades" / "client_portfolio.csv"
-REF_TOL = {"OIS": 0.1, "FXFWD": 0.5, "FXOPT": 0.05}  # bp of PV01, bp of spot, vol pts
+REF_TOL = {"OIS": 0.1, "FXFWD": 0.5, "FXOPT": 0.05, "SWPTN": 0.05}  # bp of PV01, bp of spot, vol pts, bp normal vol
 
 
 def run_qc(mkt: Market) -> pd.DataFrame:
@@ -79,6 +79,8 @@ def _ref_unit(trade: Trade, sens: dict[str, float]) -> float:
         return abs(sens[f"pv01_{trade.ccy}"])
     if isinstance(trade, FXOption):
         return abs(sens["vega_1pt"])
+    if isinstance(trade, Swaption):
+        return abs(sens["vega_1bp"])
     return abs(sens["fx_delta_1pct"]) / 100.0
 
 

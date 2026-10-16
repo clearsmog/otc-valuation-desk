@@ -51,7 +51,25 @@ class FXOption:
     product: str = "FXOPT"
 
 
-Trade = OISSwap | FXForward | FXOption
+@dataclass(frozen=True)
+class Swaption:
+    """European swaption on a spot-starting OIS (annual fixed vs compounded
+    overnight). ``start``/``end`` are the underlying swap's dates."""
+
+    trade_id: str
+    counterparty: str
+    ccy: str
+    notional: float
+    strike: float  # decimal
+    payer: bool
+    long: bool
+    expiry: date
+    start: date
+    end: date
+    product: str = "SWPTN"
+
+
+Trade = OISSwap | FXForward | FXOption | Swaption
 
 
 def _d(x) -> date:
@@ -101,6 +119,11 @@ def load_portfolio(path: Path) -> list[Trade]:
                     _d(r["expiry"]),
                     _d(r["end"]),
                 )
+            )
+        elif p == "SWPTN":
+            out.append(
+                Swaption(r["trade_id"], r["counterparty"], r["ccy"], float(r["notional"]), float(r["rate"]),
+                         r["option_type"] == "PAYER", r["direction"] == "BUY", _d(r["expiry"]), _d(r["start"]), _d(r["end"]))
             )
         else:
             raise ValueError(f"unknown product {p!r} in {r['trade_id']}")

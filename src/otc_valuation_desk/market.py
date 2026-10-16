@@ -2,41 +2,122 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from . import curves as C
 from . import data as D
 
-# GBPUSD ATM implied vols by expiry in years. SYNTHETIC: no free FX vol source
-# exists; levels are set to a plausible range and labelled synthetic in every
-# report.
-GBPUSD_ATM_VOL = {1 / 12: 0.075, 0.25: 0.078, 0.5: 0.080, 1.0: 0.083, 2.0: 0.086}
+# GBPUSD smile pillars by expiry in years: (ATM, 25-delta risk reversal,
+# 25-delta butterfly), decimals. SYNTHETIC: no free FX vol source exists;
+# levels are set to a plausible range and labelled synthetic in every report.
+# Negative risk reversals: GBP puts over GBP calls.
+GBPUSD_SMILE = {
+    1 / 12: (0.075, -0.0060, 0.0015),
+    0.25: (0.078, -0.0075, 0.0020),
+    0.5: (0.080, -0.0085, 0.0024),
+    1.0: (0.083, -0.0095, 0.0028),
+    2.0: (0.086, -0.0100, 0.0030),
+}
+
+# Normal (bp) swaption vols, expiry (y) x underlying tenor (y). SYNTHETIC.
+SWAPTION_NVOL_BP = {
+    "GBP": {
+        "expiries": (0.25, 0.5, 1.0, 2.0, 5.0),
+        "tenors": (1.0, 2.0, 5.0, 10.0),
+        "vols": ((92, 95, 96, 93), (95, 97, 97, 94), (98, 99, 98, 95), (99, 99, 97, 94), (96, 96, 94, 91)),
+    },
+    "USD": {
+        "expiries": (0.25, 0.5, 1.0, 2.0, 5.0),
+        "tenors": (1.0, 2.0, 5.0, 10.0),
+        "vols": ((105, 110, 112, 108), (108, 112, 113, 109), (112, 114, 113, 109), (113, 113, 111, 107), (108, 108, 106, 103)),
+    },
+}
+
+
+def _d1_d2(f: float, k: float, vol: float, t: float) -> tuple[float, float]:
+    sd = vol * np.sqrt(t)
+    d1 = (np.log(f / k) + 0.5 * sd * sd) / sd
+    return d1, d1 - sd
 
 
 @dataclass(frozen=True)
-class FXVol:
-    """ATM vol term structure, linear in total variance between pillars."""
+class FXSmile:
+    """FX implied vol smile.
 
-    pillars: dict[float, float]
+    Across expiries: ATM interpolated linearly in total variance, risk
+    reversal and butterfly linearly in time, flat outside the pillars.
+    Within an expiry: three pillar strikes (25-delta put, ATM delta-neutral
+    straddle, 25-delta call; forward deltas) and vanna-volga interpolation in
+    strike (Castagna-Mercurio second-order approximation). The pillar vols use
+    the smile-strangle shortcut: sigma_25C/P = ATM + BF +/- RR/2.
+    """
+
+    pillars: dict[float, tuple[float, float, float]]
+    atm_shift: float = 0.0  # parallel shift, decimals
+
+    def params(self, t: float) -> tuple[float, float, float]:
+        ts = np.array(sorted(self.pillars))
+        atm = np.array([self.pillars[k][0] for k in ts])
+        rr = np.array([self.pillars[k][1] for k in ts])
+        bf = np.array([self.pillars[k][2] for k in ts])
+        tc = min(max(t, ts[0]), ts[-1])
+        w = np.interp(tc, ts, atm**2 * ts)
+        return float(np.sqrt(w / tc)) + self.atm_shift, float(np.interp(tc, ts, rr)), float(np.interp(tc, ts, bf))
 
     def vol(self, t: float) -> float:
-        ts = np.array(sorted(self.pillars))
-        vs = np.array([self.pillars[k] for k in ts])
-        w = np.interp(
-            t, ts, vs**2 * ts, left=vs[0] ** 2 * ts[0], right=vs[-1] ** 2 * ts[-1]
-        )
-        if t <= ts[0]:
-            return float(vs[0])
-        if t >= ts[-1]:
-            return float(vs[-1])
-        return float(np.sqrt(w / t))
+        """ATM vol for expiry ``t``."""
+        return self.params(t)[0]
 
-    def shifted(self, vol_pts: float) -> "FXVol":
-        return FXVol({k: v + vol_pts / 100 for k, v in self.pillars.items()})
+    def pillar_strikes(self, t: float, fwd: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        atm, rr, bf = self.params(t)
+        s_c, s_p = atm + bf + rr / 2, atm + bf - rr / 2
+        sq = np.sqrt(t)
+        k_atm = fwd * np.exp(0.5 * atm * atm * t)
+        k_c = fwd * np.exp(-norm.ppf(0.25) * s_c * sq + 0.5 * s_c * s_c * t)
+        k_p = fwd * np.exp(-norm.ppf(0.75) * s_p * sq + 0.5 * s_p * s_p * t)
+        return (k_p, k_atm, k_c), (s_p, atm, s_c)
+
+    def vol_at(self, t: float, strike: float, fwd: float) -> float:
+        (k1, k2, k3), (s1, s2, s3) = self.pillar_strikes(t, fwd)
+        lk = np.log
+        y1 = lk(k2 / strike) * lk(k3 / strike) / (lk(k2 / k1) * lk(k3 / k1))
+        y2 = lk(strike / k1) * lk(k3 / strike) / (lk(k2 / k1) * lk(k3 / k2))
+        y3 = lk(strike / k1) * lk(strike / k2) / (lk(k3 / k1) * lk(k3 / k2))
+        first = y1 * s1 + y2 * s2 + y3 * s3 - s2
+        d1, d2 = _d1_d2(fwd, strike, s2, t)
+        a1, b1 = _d1_d2(fwd, k1, s2, t)
+        a3, b3 = _d1_d2(fwd, k3, s2, t)
+        second = y1 * a1 * b1 * (s1 - s2) ** 2 + y3 * a3 * b3 * (s3 - s2) ** 2
+        dd = d1 * d2
+        disc = s2 * s2 + dd * (2 * s2 * first + second)
+        if abs(dd) < 1e-12 or disc < 0:
+            return float(s2 + first)  # first-order fallback
+        return float(s2 + (-s2 + np.sqrt(disc)) / dd)
+
+    def shifted(self, vol_pts: float) -> "FXSmile":
+        return FXSmile(self.pillars, self.atm_shift + vol_pts / 100)
+
+
+@dataclass(frozen=True)
+class NormalVolGrid:
+    """Swaption normal vols (bp), bilinear in expiry and tenor, flat outside."""
+
+    expiries: tuple[float, ...]
+    tenors: tuple[float, ...]
+    vols: tuple[tuple[float, ...], ...]
+    shift_bp: float = 0.0
+
+    def vol_bp(self, t_exp: float, tenor: float) -> float:
+        by_exp = [np.interp(tenor, self.tenors, row) for row in self.vols]
+        return float(np.interp(t_exp, self.expiries, by_exp)) + self.shift_bp
+
+    def shifted(self, bp: float) -> "NormalVolGrid":
+        return replace(self, shift_bp=self.shift_bp + bp)
 
 
 @dataclass(frozen=True)
@@ -45,7 +126,8 @@ class Market:
     curves: dict[str, C.DiscountCurve]
     fixings: dict[str, pd.Series]  # index name -> percent by date
     spot: dict[str, float]
-    fx_vol: dict[str, FXVol]
+    fx_vol: dict[str, FXSmile]
+    swaption_vol: dict[str, NormalVolGrid] = field(default_factory=dict)
 
     def bump_curve(self, ccy: str, bp: float) -> "Market":
         return replace(self, curves={**self.curves, ccy: self.curves[ccy].shifted(bp)})
@@ -56,6 +138,11 @@ class Market:
     def bump_vol(self, pair: str, vol_pts: float) -> "Market":
         return replace(
             self, fx_vol={**self.fx_vol, pair: self.fx_vol[pair].shifted(vol_pts)}
+        )
+
+    def bump_swaption_vol(self, ccy: str, bp: float) -> "Market":
+        return replace(
+            self, swaption_vol={**self.swaption_vol, ccy: self.swaption_vol[ccy].shifted(bp)}
         )
 
 
@@ -81,7 +168,8 @@ def build_market(
             "SOFR": D.sofr_fixings(fixings_start, fixings_end),
         },
         spot={"GBPUSD": float(fx.loc[asof, "GBPUSD"])},
-        fx_vol={"GBPUSD": FXVol(GBPUSD_ATM_VOL)},
+        fx_vol={"GBPUSD": FXSmile(GBPUSD_SMILE)},
+        swaption_vol={c: NormalVolGrid(**g) for c, g in SWAPTION_NVOL_BP.items()},
     )
 
 

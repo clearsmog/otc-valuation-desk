@@ -4,10 +4,10 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 
 ## Summary
 
-- Portfolio PV (USD, own model): 3,259,094
-- QuantLib reference: 20/20 trades within tolerance
+- Portfolio PV (USD, own model): 5,069,630
+- QuantLib reference: 24/24 trades within tolerance
 - Market-data QC exceptions: 5 (0 FAIL)
-- Price challenges: EXPLAINED 7, LIKELY 4, WITHIN_TOLERANCE 9
+- Price challenges: EXPLAINED 8, LIKELY 6, WITHIN_TOLERANCE 10
 
 ## Market-data QC
 
@@ -55,11 +55,15 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 | NBM-FXF-003 | FXFWD | Bank E | USD | 530,457 | 530,457 | -0 | -0 | OK |
 | NBM-FXF-004 | FXFWD | Bank A | USD | 150,381 | 150,381 | 0 | 0 | OK |
 | NBM-FXF-005 | FXFWD | Bank D | USD | 63,988 | 63,988 | -0 | -0 | OK |
-| NBM-FXO-001 | FXOPT | Bank B | USD | 119,873 | 120,121 | -248 | -0 | OK |
-| NBM-FXO-002 | FXOPT | Bank C | USD | 101,813 | 101,754 | 59 | 0 | OK |
-| NBM-FXO-003 | FXOPT | Bank E | USD | -158,914 | -159,338 | 424 | 0 | OK |
-| NBM-FXO-004 | FXOPT | Bank A | USD | -152,739 | -152,613 | -126 | -0 | OK |
-| NBM-FXO-005 | FXOPT | Bank D | USD | 497,581 | 498,096 | -515 | -0 | OK |
+| NBM-FXO-001 | FXOPT | Bank B | USD | 119,978 | 120,226 | -248 | -0 | OK |
+| NBM-FXO-002 | FXOPT | Bank C | USD | 129,899 | 129,841 | 58 | 0 | OK |
+| NBM-FXO-003 | FXOPT | Bank E | USD | -150,927 | -151,340 | 413 | 0 | OK |
+| NBM-FXO-004 | FXOPT | Bank A | USD | -158,135 | -158,011 | -124 | -0 | OK |
+| NBM-FXO-005 | FXOPT | Bank D | USD | 492,407 | 492,918 | -511 | -0 | OK |
+| NBM-SWO-001 | SWPTN | Bank A | GBP | 551,987 | 551,987 | 0 | 0 | OK |
+| NBM-SWO-002 | SWPTN | Bank C | GBP | -44,139 | -44,139 | -0 | -0 | OK |
+| NBM-SWO-003 | SWPTN | Bank E | USD | 1,246,936 | 1,246,936 | -0 | -0 | OK |
+| NBM-SWO-004 | SWPTN | Bank D | USD | -134,736 | -134,736 | 0 | 0 | OK |
 
 ## Price challenges (dealer mark minus our value)
 
@@ -80,8 +84,12 @@ Fictional client portfolio (20 trades). GBP curve: Bank of England OIS. USD curv
 | NBM-FXF-003 | Bank E | USD | 530,457 | 530,529 | 73 | 3,891 | WITHIN_TOLERANCE |  |  |  |
 | NBM-FXF-004 | Bank A | USD | 150,381 | 132,389 | -17,992 | 2,027 | EXPLAINED | PRIOR_DAY | matches a mark off 2026-10-14 curves and spot | Ask the dealer for the curve/spot snapshot date; re-request today's mark |
 | NBM-FXF-005 | Bank D | USD | 63,988 | 63,910 | -78 | 3,158 | WITHIN_TOLERANCE |  |  |  |
-| NBM-FXO-001 | Bank B | USD | 119,873 | 120,382 | 508 | 3,957 | WITHIN_TOLERANCE |  |  |  |
-| NBM-FXO-002 | Bank C | USD | 101,813 | 157,040 | 55,227 | 9,027 | LIKELY | VOL | dealer vol about +1.53 pts from ours | Request the dealer's vol for this expiry/strike and compare with our surface |
-| NBM-FXO-003 | Bank E | USD | -158,914 | -176,844 | -17,930 | 11,206 | LIKELY | BID_SIDE | gap = 0.40 vol pts against us (bid/offer side) | Ask whether the mark is mid or bid/offer; request a mid mark |
-| NBM-FXO-004 | Bank A | USD | -152,739 | -152,014 | 725 | 6,103 | WITHIN_TOLERANCE |  |  |  |
-| NBM-FXO-005 | Bank D | USD | 497,581 | 621,977 | 124,395 | 18,013 | EXPLAINED | NOTIONAL | matches a notional of 15,000,000 (booked 12,000,000) | Booking break: confirm notional against the confirmation; escalate to operations |
+| NBM-FXO-001 | Bank B | USD | 119,978 | 120,486 | 509 | 3,959 | WITHIN_TOLERANCE |  |  |  |
+| NBM-FXO-002 | Bank C | USD | 129,899 | 182,480 | 52,581 | 8,590 | LIKELY | VOL | dealer vol about +1.53 pts from ours | Request the dealer's vol for this expiry/strike and compare with our surface |
+| NBM-FXO-003 | Bank E | USD | -150,927 | -168,664 | -17,737 | 11,086 | LIKELY | BID_SIDE | gap = 0.40 vol pts against us (bid/offer side) | Ask whether the mark is mid or bid/offer; request a mid mark |
+| NBM-FXO-004 | Bank A | USD | -158,135 | -157,422 | 713 | 6,004 | WITHIN_TOLERANCE |  |  |  |
+| NBM-FXO-005 | Bank D | USD | 492,407 | 615,509 | 123,102 | 18,244 | EXPLAINED | NOTIONAL | matches a notional of 15,000,000 (booked 12,000,000) | Booking break: confirm notional against the confirmation; escalate to operations |
+| NBM-SWO-001 | Bank A | GBP | 551,987 | 551,971 | -16 | 4,953 | WITHIN_TOLERANCE |  |  |  |
+| NBM-SWO-002 | Bank C | GBP | -44,139 | -49,437 | -5,297 | 1,000 | LIKELY | VOL | dealer normal vol about +6.0bp from ours | Request the dealer's vol for this expiry/strike and compare with our surface |
+| NBM-SWO-003 | Bank E | USD | 1,246,936 | 1,126,950 | -119,985 | 15,455 | EXPLAINED | PRIOR_DAY | matches a mark off 2026-10-14 curves and spot | Ask the dealer for the curve/spot snapshot date; re-request today's mark |
+| NBM-SWO-004 | Bank D | USD | -134,736 | -137,716 | -2,980 | 1,986 | LIKELY | BID_SIDE | gap = 1.5bp normal vol against us (bid/offer side) | Ask whether the mark is mid or bid/offer; request a mid mark |

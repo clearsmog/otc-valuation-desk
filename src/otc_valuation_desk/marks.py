@@ -28,7 +28,7 @@ import numpy as np
 
 from . import pricing as P
 from .market import Market, boe_interpolated, build_market
-from .trades import FXForward, FXOption, OISSwap, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
 
 # trade_id -> (cause, parameter). Explicit so the answer key is readable.
 PLANTED: dict[str, tuple[str, float]] = {
@@ -52,6 +52,10 @@ PLANTED: dict[str, tuple[str, float]] = {
     "NBM-FXO-003": ("BID_SIDE", 0.4),  # vol points
     "NBM-FXO-004": ("NONE", 0.0),
     "NBM-FXO-005": ("NOTIONAL", 15_000_000.0),  # dealer booked 15m, not 12m
+    "NBM-SWO-001": ("NONE", 0.0),
+    "NBM-SWO-002": ("VOL", 6.0),  # bp normal vol
+    "NBM-SWO-003": ("PRIOR_DAY", 0.0),
+    "NBM-SWO-004": ("BID_SIDE", 1.5),  # bp normal vol
 }
 
 
@@ -69,6 +73,8 @@ def _risk_unit(trade: Trade, mkt: Market) -> float:
         return abs(s[f"pv01_{trade.ccy}"])
     if isinstance(trade, FXOption):
         return abs(s["vega_1pt"])
+    if isinstance(trade, Swaption):
+        return abs(s["vega_1bp"])
     return abs(s["fx_delta_1pct"]) / 100.0  # per 1bp of spot
 
 
@@ -99,6 +105,8 @@ def marked_value(
             return P.price(replace(trade, buy_base=not trade.buy_base), mkt)
         return P.price(replace(trade, long=not trade.long), mkt)
     if cause == "VOL":
+        if isinstance(trade, Swaption):
+            return P.price(trade, mkt.bump_swaption_vol(trade.ccy, param))
         return P.price(trade, mkt.bump_vol(trade.pair, param))
     if cause == "SPOT_SNAPSHOT":
         return P.price(trade, mkt.bump_spot(trade.pair, param / 100.0))

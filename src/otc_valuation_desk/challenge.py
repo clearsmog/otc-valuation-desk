@@ -22,7 +22,7 @@ from datetime import date
 from . import pricing as P
 from .marks import DealerMark
 from .market import Market, boe_interpolated
-from .trades import FXForward, FXOption, OISSwap, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
 
 ACTIONS = {
     "PRIOR_DAY": "Ask the dealer for the curve/spot snapshot date; re-request today's mark",
@@ -57,12 +57,14 @@ class ChallengeResult:
 def risk_units(trade: Trade, mkt: Market) -> dict[str, float]:
     s = P.sensitivities(trade, mkt)
     out = {}
-    if isinstance(trade, OISSwap):
+    if isinstance(trade, OISSwap | Swaption):
         out["pv01"] = s[f"pv01_{trade.ccy}"]
     else:
         out["delta_1pct"] = s["fx_delta_1pct"]
     if isinstance(trade, FXOption):
         out["vega"] = s["vega_1pt"]
+    if isinstance(trade, Swaption):
+        out["vega"] = s["vega_1bp"]
     return out
 
 
@@ -73,6 +75,8 @@ def tolerance(trade: Trade, units: dict[str, float]) -> float:
         scaled = 0.25 * abs(units["pv01"])  # 0.25bp
     elif isinstance(trade, FXOption):
         scaled = 0.25 * abs(units["vega"])  # 0.25 vol point
+    elif isinstance(trade, Swaption):
+        scaled = 1.0 * abs(units["vega"])  # 1bp normal vol
     else:
         scaled = 2.0 * abs(units["delta_1pct"]) / 100.0  # 2bp of spot
     return max(1_000.0, scaled)
@@ -157,6 +161,13 @@ def attribute(
         return "EXPLAINED", cause, detail, residual
 
     # --- implied from risk (likely, to be confirmed with the dealer) --------
+    if isinstance(trade, Swaption):
+        shift = gap / units["vega"]
+        if abs(shift) <= 20.0:
+            if gap < 0 and abs(shift) <= 2.0:
+                return "LIKELY", "BID_SIDE", f"gap = {abs(shift):.1f}bp normal vol against us (bid/offer side)", 0.0
+            value = P.price(trade, mkt.bump_swaption_vol(trade.ccy, shift))
+            return "LIKELY", "VOL", f"dealer normal vol about {shift:+.1f}bp from ours", mark - value
     if isinstance(trade, FXOption):
         shift = gap / units["vega"]
         if abs(shift) <= 5.0:

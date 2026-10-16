@@ -17,7 +17,7 @@ from scipy.stats import norm
 from .curves import CONVENTIONS, t_of
 from .dates import add_business_days, is_business_day, schedule, year_fraction
 from .market import Market
-from .trades import FXForward, FXOption, OISSwap, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
 
 DENOM = {"ACT/365F": 365.0, "ACT/360": 360.0}
 
@@ -135,8 +135,8 @@ def price_fx_option(trade: FXOption, mkt: Market, vol: float | None = None) -> f
     if trade.expiry < mkt.asof:
         return 0.0
     t_exp = t_of(mkt.asof, trade.expiry)
-    sigma = mkt.fx_vol[trade.pair].vol(t_exp) if vol is None else vol
     f = fx_forward_rate(mkt, trade.pair, trade.delivery)
+    sigma = mkt.fx_vol[trade.pair].vol_at(t_exp, trade.strike, f) if vol is None else vol
     df = mkt.curves[trade.pair[3:]].df_at(trade.delivery)
     sign = 1.0 if trade.long else -1.0
     return (
@@ -147,6 +147,43 @@ def price_fx_option(trade: FXOption, mkt: Market, vol: float | None = None) -> f
     )
 
 
+def forward_swap(mkt: Market, ccy: str, start: date, end: date) -> tuple[float, float, date]:
+    """Annuity, forward par rate and adjusted end of an OIS from ``start``."""
+    c = CONVENTIONS[ccy]
+    curve = mkt.curves[ccy]
+    periods = schedule(start, end, c["freq"], c["cal"])
+    annuity = sum(year_fraction(p.start, p.end, c["day_count"]) * curve.df_at(p.end) for p in periods)
+    adj_end = periods[-1].end
+    return annuity, (curve.df_at(start) - curve.df_at(adj_end)) / annuity, adj_end
+
+
+def bachelier(f: float, k: float, vol: float, t: float, payer: bool) -> float:
+    """Undiscounted normal-model option on a rate, per unit annuity."""
+    w = 1.0 if payer else -1.0
+    if t <= 0 or vol <= 0:
+        return max(w * (f - k), 0.0)
+    sd = vol * sqrt(t)
+    d = (f - k) / sd
+    return w * (f - k) * norm.cdf(w * d) + sd * norm.pdf(d)
+
+
+def swaption_tenor(trade: Swaption) -> float:
+    return round((trade.end - trade.start).days / 365.25, 2)
+
+
+def price_swaption(trade: Swaption, mkt: Market, vol_bp: float | None = None) -> float:
+    """Bachelier (normal) model, physically settled into the OIS, valued with
+    the OIS curve's annuity; vol from the expiry x tenor normal-vol grid."""
+    if trade.expiry < mkt.asof:
+        return 0.0
+    t_exp = t_of(mkt.asof, trade.expiry)
+    annuity, fwd, _ = forward_swap(mkt, trade.ccy, trade.start, trade.end)
+    if vol_bp is None:
+        vol_bp = mkt.swaption_vol[trade.ccy].vol_bp(t_exp, swaption_tenor(trade))
+    sign = 1.0 if trade.long else -1.0
+    return sign * trade.notional * annuity * bachelier(fwd, trade.strike, vol_bp / 1e4, t_exp, trade.payer)
+
+
 def price(trade: Trade, mkt: Market) -> float:
     if isinstance(trade, OISSwap):
         return price_ois(trade, mkt)
@@ -154,11 +191,13 @@ def price(trade: Trade, mkt: Market) -> float:
         return price_fx_forward(trade, mkt)
     if isinstance(trade, FXOption):
         return price_fx_option(trade, mkt)
+    if isinstance(trade, Swaption):
+        return price_swaption(trade, mkt)
     raise TypeError(type(trade))
 
 
 def pv_ccy(trade: Trade) -> str:
-    return trade.ccy if isinstance(trade, OISSwap) else trade.pair[3:]
+    return trade.ccy if isinstance(trade, OISSwap | Swaption) else trade.pair[3:]
 
 
 def to_usd(value: float, ccy: str, mkt: Market) -> float:
@@ -170,13 +209,16 @@ def to_usd(value: float, ccy: str, mkt: Market) -> float:
 
 def sensitivities(trade: Trade, mkt: Market) -> dict[str, float]:
     """PV01 per currency (+1bp parallel zero shift), FX delta (+1% spot) and
-    vega (+1 vol point), all in the trade's PV currency."""
+    vega (+1 vol point; +1bp normal vol for swaptions), all in the trade's PV
+    currency."""
     base = price(trade, mkt)
     out = {}
     for ccy in ("GBP", "USD"):
         out[f"pv01_{ccy}"] = price(trade, mkt.bump_curve(ccy, 1.0)) - base
-    if not isinstance(trade, OISSwap):
+    if isinstance(trade, FXForward | FXOption):
         out["fx_delta_1pct"] = price(trade, mkt.bump_spot(trade.pair, 0.01)) - base
     if isinstance(trade, FXOption):
         out["vega_1pt"] = price(trade, mkt.bump_vol(trade.pair, 1.0)) - base
+    if isinstance(trade, Swaption):
+        out["vega_1bp"] = price(trade, mkt.bump_swaption_vol(trade.ccy, 1.0)) - base
     return out

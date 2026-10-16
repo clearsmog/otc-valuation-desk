@@ -19,7 +19,7 @@ import QuantLib as ql
 
 from .curves import CONVENTIONS
 from .market import Market
-from .trades import FXForward, FXOption, OISSwap, Trade
+from .trades import FXForward, FXOption, OISSwap, Swaption, Trade
 
 
 def qd(d: date) -> ql.Date:
@@ -89,28 +89,33 @@ def ql_ois(trade: OISSwap, qm: QLMarket) -> float:
     return swap.NPV()
 
 
-def ql_fx_forward(trade: FXForward, qm: QLMarket) -> float:
-    if trade.delivery <= qm.mkt.asof:
-        return 0.0
+def ql_forward(qm: QLMarket, pair: str, delivery: date) -> float:
     spot_d = ql.JointCalendar(
         ql.UnitedKingdom(), ql.UnitedStates(ql.UnitedStates.FederalReserve)
     ).advance(qm.asof, 2, ql.Days)
-    base, quote = trade.pair[:3], trade.pair[3:]
-    hb, hq = qm.handles[base], qm.handles[quote]
-    f = (
-        qm.mkt.spot[trade.pair]
-        * (hb.discount(qd(trade.delivery)) / hb.discount(spot_d))
-        / (hq.discount(qd(trade.delivery)) / hq.discount(spot_d))
+    hb, hq = qm.handles[pair[:3]], qm.handles[pair[3:]]
+    return (
+        qm.mkt.spot[pair]
+        * (hb.discount(qd(delivery)) / hb.discount(spot_d))
+        / (hq.discount(qd(delivery)) / hq.discount(spot_d))
     )
+
+
+def ql_fx_forward(trade: FXForward, qm: QLMarket) -> float:
+    if trade.delivery <= qm.mkt.asof:
+        return 0.0
+    f = ql_forward(qm, trade.pair, trade.delivery)
     sign = 1.0 if trade.buy_base else -1.0
-    return sign * trade.notional * (f - trade.strike) * hq.discount(qd(trade.delivery))
+    return sign * trade.notional * (f - trade.strike) * qm.handles[trade.pair[3:]].discount(qd(trade.delivery))
 
 
 def ql_fx_option(trade: FXOption, qm: QLMarket) -> float:
     if trade.expiry < qm.mkt.asof:
         return 0.0
     t = ql.Actual365Fixed().yearFraction(qm.asof, qd(trade.expiry))
-    vol = qm.mkt.fx_vol[trade.pair].vol(t)
+    # the smile is an input surface: read it at this strike, with the
+    # forward computed off the QuantLib curves
+    vol = qm.mkt.fx_vol[trade.pair].vol_at(t, trade.strike, ql_forward(qm, trade.pair, trade.delivery))
     process = ql.GarmanKohlagenProcess(
         ql.QuoteHandle(ql.SimpleQuote(qm.mkt.spot[trade.pair])),
         qm.handles[trade.pair[:3]],  # foreign (base) curve
@@ -128,6 +133,29 @@ def ql_fx_option(trade: FXOption, qm: QLMarket) -> float:
     return sign * trade.notional * opt.NPV()
 
 
+def ql_swaption(trade: Swaption, qm: QLMarket) -> float:
+    """QuantLib Swaption on an OvernightIndexedSwap with the Bachelier engine."""
+    if trade.expiry < qm.mkt.asof:
+        return 0.0
+    c = CONVENTIONS[trade.ccy]
+    idx = qm.indices[trade.ccy]
+    sched = ql.Schedule(
+        qd(trade.start), qd(trade.end), ql.Period(ql.Annual), idx.fixingCalendar(),
+        ql.ModifiedFollowing, ql.ModifiedFollowing, ql.DateGeneration.Backward, False,
+    )
+    side = ql.OvernightIndexedSwap.Payer if trade.payer else ql.OvernightIndexedSwap.Receiver
+    swap = ql.OvernightIndexedSwap(side, trade.notional, sched, trade.strike, QL_DC[c["day_count"]], idx)
+    t = ql.Actual365Fixed().yearFraction(qm.asof, qd(trade.expiry))
+    tenor = round((trade.end - trade.start).days / 365.25, 2)
+    vol = qm.mkt.swaption_vol[trade.ccy].vol_bp(t, tenor) / 1e4
+    opt = ql.Swaption(swap, ql.EuropeanExercise(qd(trade.expiry)))
+    opt.setPricingEngine(
+        ql.BachelierSwaptionEngine(qm.handles[trade.ccy], ql.QuoteHandle(ql.SimpleQuote(vol)), ql.Actual365Fixed())
+    )
+    sign = 1.0 if trade.long else -1.0
+    return sign * opt.NPV()
+
+
 def ql_price(trade: Trade, qm: QLMarket) -> float:
     if isinstance(trade, OISSwap):
         return ql_ois(trade, qm)
@@ -135,4 +163,6 @@ def ql_price(trade: Trade, qm: QLMarket) -> float:
         return ql_fx_forward(trade, qm)
     if isinstance(trade, FXOption):
         return ql_fx_option(trade, qm)
+    if isinstance(trade, Swaption):
+        return ql_swaption(trade, qm)
     raise TypeError(type(trade))
